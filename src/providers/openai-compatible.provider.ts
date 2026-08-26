@@ -11,6 +11,7 @@ import type {
 import type { ProviderStrategy } from './strategies/provider.strategy';
 import { maskSecret } from '../security/sanitise';
 import { decodeImageData, imageFile } from './image-media';
+import { normalizeImageUsage } from '../telemetry/image-observability';
 
 /**
  * Single provider implementation for all OpenAI-compatible APIs.
@@ -147,10 +148,11 @@ export class OpenAICompatibleProvider implements IImageProvider {
   // ─── shared utilities ─────────────────────────────────────────────────────
 
   private mapResponse(
-    response: { data?: Array<{ b64_json?: string | null; url?: string | null; revised_prompt?: string | null }>; created?: number },
+    response: { data?: Array<{ b64_json?: string | null; url?: string | null; revised_prompt?: string | null }>; created?: number; usage?: unknown },
     model: string,
   ): ImageResult[] {
     if (!response.data?.length) throw new Error('Image provider returned no image data.');
+    const usage = normalizeImageUsage(response.usage, this.strategy.name + '_response');
     return response.data.map((img) => {
       if (!img.b64_json) {
         throw new Error(img.url
@@ -165,6 +167,7 @@ export class OpenAICompatibleProvider implements IImageProvider {
         revised_prompt: img.revised_prompt ?? undefined,
         model,
         created: response.created ?? Date.now(),
+        usage,
       };
     });
   }

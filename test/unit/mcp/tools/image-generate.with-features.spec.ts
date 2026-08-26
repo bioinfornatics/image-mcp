@@ -145,6 +145,18 @@ describe('ImageGenerateTool — with M4 features', () => {
       );
     });
 
+    it('disables prompt enhancement explicitly and reports prompt provenance', async () => {
+      const result = await tool.execute({ prompt: 'a cat', disable_prompt_enhancement: true, response_format: 'json' }, makeMockServer());
+      expect(mockSampling.enhancePrompt).not.toHaveBeenCalled();
+      const output = JSON.parse(result.content[0].text);
+      expect(output.enhancement_state).toBe('disabled');
+      expect(output.input_prompt_sha256).toBe(output.effective_prompt_sha256);
+      expect(output.timings_ms).toEqual(expect.objectContaining({ validation: expect.any(Number), provider: expect.any(Number), total: expect.any(Number) }));
+      expect(output.request_id).toEqual(expect.any(String));
+      expect(output.usage.usage_source).toBe('unavailable');
+      expect(output.estimated_cost.status).toBe('unavailable');
+    });
+
     it('should skip sampling when no server provided', async () => {
       await tool.execute({ prompt: 'a cat' });
 
@@ -326,6 +338,7 @@ describe('ImageGenerateTool — with M4 features', () => {
         mockServer,
         MOCK_RESULT.b64_json,
         expect.any(String),
+        undefined,
       );
     });
 

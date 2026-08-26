@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { LATEST_MODEL, OPENAI_MODELS, AZURE_MODELS } from '../../config/models';
 import { MAI_MODEL_NAME, MAI_MIN_EDGE, MAI_MAX_PIXELS } from '../../providers/mai-image.constants';
+import { isMaiModel } from '../../providers/model-capabilities';
 
 export enum ResponseFormat {
   MARKDOWN = 'markdown',
@@ -123,7 +124,7 @@ function validateModelSizeCompat(
   ctx: z.RefinementCtx,
 ): void {
   const model = (data.model ?? LATEST_MODEL).trim();
-  if (model.toLowerCase() !== MAI_MODEL_NAME.toLowerCase()) {
+  if (!isMaiModel(model)) {
     validateSizeField(data.size, ctx);
     return;
   }
@@ -226,6 +227,12 @@ export const ImageGenerateSchema = z.object({
     .optional()
     .default(false)
     .describe('Save generated image(s) to MCP workspace root directory'),
+  workspace_output_path: z.string().optional().describe(
+    'Safe relative output path below the MCP workspace root. Existing files and symlink components are rejected.',
+  ),
+  disable_prompt_enhancement: z.boolean().optional().default(false).describe(
+    'Disable client sampling prompt enhancement for deterministic benchmarks.',
+  ),
   skip_elicitation: z
     .boolean()
     .optional()

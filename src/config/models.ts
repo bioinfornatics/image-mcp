@@ -40,6 +40,7 @@ export const AZURE_MODELS = [
   'gpt-image-1-mini',     // Limited Access
   'gpt-image-1',          // Limited Access
   'MAI-Image-2.5',        // Public Preview — Microsoft MAI Image, served via dedicated /mai/v1 endpoint
+  'MAI-Image-2.5-Flash',  // Microsoft MAI low-latency family; discovered deployments route through /mai/v1
 ] as const;
 
 export const OPENROUTER_IMAGE_MODELS = [

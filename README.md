@@ -242,6 +242,14 @@ Authorization: Bearer <IMAGE_MCP_API_KEY>   # only if IMAGE_MCP_API_KEY is set
 
 ---
 
+## Image routing and observability
+
+Azure supports discovered MAI-Image-2.5 and MAI-Image-2.5-Flash deployments. The configured deployment is the default; discovered exact deployment names or unambiguous model families may override it unless `IMAGE_STRICT_DEPLOYMENT_PINNING=true`.
+
+Generation JSON includes model and prompt provenance, stage timings, normalized provider usage, and an optional public-price `estimated_cost`. No prices are built in and estimates are never billed cost. Safe deterministic workspace targets are available through `workspace_output_path`; prompt enhancement can be disabled with `disable_prompt_enhancement`.
+
+See [Image model routing, observability, usage, and cost](docs/IMAGE_OBSERVABILITY.md) for contracts and configuration.
+
 ## Available Models
 
 > **As of April 23, 2026** — model landscape has changed significantly. dall-e-3 was retired.
@@ -459,3 +467,8 @@ IMAGE_API_KEY=... npx --yes @bioinfornatics/image-mcp \
 ```
 
 See [`examples/goose-openrouter.yaml`](examples/goose-openrouter.yaml) and the capability table in [`docs/API.md`](docs/API.md#openrouter-image-api).
+
+
+### Security policy notes
+
+HTTP/multi-user workspace saving fails closed unless `IMAGE_WORKSPACE_ALLOWED_ROOTS` is configured; trusted stdio mode may accept client roots without it. Static Azure mode exposes only `IMAGE_DEPLOYMENT`; deployment discovery is required for selectable multi-deployment routing. Prometheus model labels are bounded canonical families and never contain raw requested or deployment names. See `docs/IMAGE_OBSERVABILITY.md` for strict usage and pricing validation, staleness, fallback, aggregation, and rounding policies.

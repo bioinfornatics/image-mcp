@@ -6,6 +6,7 @@ import type { IImageProvider } from '../../providers/provider.interface';
 import { ConfigService } from '@nestjs/config';
 import type { AppConfig } from '../../config/app.config';
 import { OPENAI_MODELS, AZURE_MODELS } from '../../config/models';
+import { IMAGE_MODEL_CAPABILITIES } from '../../providers/model-capabilities';
 
 @Injectable()
 export class ProviderListTool {
@@ -80,6 +81,7 @@ Use provider_validate to test connectivity before generating images.`,
           configured: true,
           available_models: availableModels,
           status: 'configured',
+          ...(providerName === 'azure' ? { model_capabilities: IMAGE_MODEL_CAPABILITIES } : {}),
         },
       ],
     };

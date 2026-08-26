@@ -35,6 +35,7 @@ import type { AzureAuthHeaderProvider } from './azure-deployment-catalog';
 import { decodeImageData, imageMimeType } from './image-media';
 import { maskSecret } from '../security/sanitise';
 import { MAI_MODEL_NAME, MAI_MIN_EDGE, MAI_MAX_PIXELS } from './mai-image.constants';
+import { normalizeImageUsage } from '../telemetry/image-observability';
 
 export { MAI_MODEL_NAME, MAI_MIN_EDGE, MAI_MAX_PIXELS };
 
@@ -90,6 +91,7 @@ function rejectUnsupportedQuality(quality: string | undefined): void {
 interface MaiImageApiResponse {
   data?: Array<{ b64_json?: string; image?: string }>;
   created?: number;
+  usage?: unknown;
 }
 
 interface MaiImageApiError {
@@ -236,6 +238,8 @@ export class MaiImageProvider implements IImageProvider {
     const entries = json.data ?? [];
     if (entries.length === 0) throw new Error(`${MAI_MODEL_NAME} returned no image data.`);
     const created = json.created ?? Math.floor(Date.now() / 1000);
+    const requestId = safeRequestId(response);
+    const usage = normalizeImageUsage(json.usage, 'azure_response');
     return entries.map((entry) => {
       const b64 = entry.b64_json ?? entry.image;
       if (!b64) throw new Error(`${MAI_MODEL_NAME} returned an empty image payload.`);
@@ -249,6 +253,8 @@ export class MaiImageProvider implements IImageProvider {
         mimeType: imageMimeType(decoded.format),
         model: this.deployment,
         created,
+        requestId,
+        usage,
       };
     });
   }

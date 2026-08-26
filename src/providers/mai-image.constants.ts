@@ -12,6 +12,7 @@
 
 /** The confirmed, public-preview MAI Image model name. */
 export const MAI_MODEL_NAME = 'MAI-Image-2.5';
+export const MAI_FLASH_MODEL_NAME = 'MAI-Image-2.5-Flash';
 
 /** Minimum width/height, per Microsoft's confirmed MAI Image contract. */
 export const MAI_MIN_EDGE = 768;

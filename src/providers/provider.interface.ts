@@ -35,6 +35,22 @@ export interface VariationParams {
   size?: string;
 }
 
+export interface ImageUsage {
+  input_tokens: number | null;
+  output_tokens: number | null;
+  image_tokens: number | null;
+  total_tokens: number | null;
+  billable_units: number | null;
+  usage_source: string;
+}
+
+export interface ModelProvenance {
+  configured_deployment?: string;
+  requested_model?: string;
+  resolved_deployment?: string;
+  effective_model: string;
+}
+
 export interface ImageResult {
   b64_json: string;
   format: 'png' | 'jpeg' | 'webp';
@@ -42,6 +58,9 @@ export interface ImageResult {
   revised_prompt?: string;
   model: string;
   created: number;
+  requestId?: string;
+  usage?: ImageUsage;
+  provenance?: ModelProvenance;
 }
 
 export type ProviderErrorStage = 'prompt' | 'output' | 'unknown';

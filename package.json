@@ -1,6 +1,6 @@
 {
   "name": "@bioinfornatics/image-mcp",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Provider-neutral MCP server for AI image generation and editing across OpenAI, Microsoft Foundry, OpenRouter, Together AI, and compatible APIs",
   "license": "CECILL-2.1",
   "repository": {
@@ -21,12 +21,13 @@
     "bin/start.sh",
     "docs/authentication/**/*.md",
     "docs/adr/007-three-mode-azure-authentication.md",
+    "docs/IMAGE_OBSERVABILITY.md",
     "infra/**/*",
     "README.md",
     "LICENSE"
   ],
   "scripts": {
-    "build": "node --max-old-space-size=8192 ./node_modules/typescript/bin/tsc -p tsconfig.build.json",
+    "build": "bun ./node_modules/typescript/bin/tsc -p tsconfig.build.json",
     "postbuild": "chmod +x dist/main.js",
     "prepack": "bun run build",
     "start": "node dist/main.js",
@@ -39,7 +40,7 @@
     "test:coverage": "bun test --coverage",
     "lint": "eslint 'src/**/*.ts' 'test/**/*.ts'",
     "lint:fix": "eslint 'src/**/*.ts' 'test/**/*.ts' --fix",
-    "type-check": "node --max-old-space-size=8192 ./node_modules/typescript/bin/tsc -p tsconfig.build.json --noEmit",
+    "type-check": "bun ./node_modules/typescript/bin/tsc -p tsconfig.build.json --noEmit",
     "format": "prettier --write 'src/**/*.ts' 'test/**/*.ts'",
     "secret:store": "bun run src/cli/store-secret.ts",
     "secret:delete": "bun run src/cli/store-secret.ts",

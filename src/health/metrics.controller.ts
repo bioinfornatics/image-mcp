@@ -1,5 +1,16 @@
 import { Controller, Get, Header } from '@nestjs/common';
 import { register, collectDefaultMetrics, Counter, Histogram } from 'prom-client';
+import { getImageModelCapabilities } from '../providers/model-capabilities';
+
+/** Fixed-cardinality, non-sensitive model family label. */
+export function imageModelMetricLabel(model: string | undefined): string {
+  if (!model) return 'unknown';
+  const capabilities = getImageModelCapabilities(model);
+  if (capabilities) return capabilities.family.toLowerCase();
+  const canonical = model.toLowerCase();
+  if (/^gpt-image-(1|1\.5|1-mini|2)$/.test(canonical) || canonical === 'dall-e-2') return canonical;
+  return 'other';
+}
 
 // Collect default Node.js metrics (memory, CPU, etc.)
 collectDefaultMetrics({ prefix: 'image_mcp_' });
@@ -15,6 +26,13 @@ export const imageModelFallbackCounter = new Counter({
   name: 'image_mcp_image_model_fallbacks_total',
   help: 'Total explicit image model fallbacks',
   labelNames: ['from_model', 'to_model', 'reason'],
+});
+
+export const imageStageDuration = new Histogram({
+  name: 'image_mcp_image_stage_duration_seconds',
+  help: 'Image generation stage duration in seconds',
+  labelNames: ['stage', 'model', 'provider'],
+  buckets: [0.001, 0.01, 0.05, 0.1, 0.5, 1, 5, 30, 120],
 });
 
 export const imageGenerationDuration = new Histogram({

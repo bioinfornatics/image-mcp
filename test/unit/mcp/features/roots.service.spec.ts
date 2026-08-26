@@ -12,7 +12,11 @@ function makeService(allowedRoots?: string): RootsService {
   } else {
     delete process.env['IMAGE_WORKSPACE_ALLOWED_ROOTS'];
   }
+  const origTransport = process.env['IMAGE_MCP_TRANSPORT'];
+  process.env['IMAGE_MCP_TRANSPORT'] = 'stdio';
   const svc = new RootsService();
+  if (origTransport !== undefined) process.env['IMAGE_MCP_TRANSPORT'] = origTransport;
+  else delete process.env['IMAGE_MCP_TRANSPORT'];
   if (orig !== undefined) process.env['IMAGE_WORKSPACE_ALLOWED_ROOTS'] = orig;
   else delete process.env['IMAGE_WORKSPACE_ALLOWED_ROOTS'];
   return svc;
@@ -166,7 +170,7 @@ describe('RootsService', () => {
   // ─── H6: allowlist enforcement ────────────────────────────────────────────
 
   describe('saveImageToWorkspace() — allowlist (H6)', () => {
-    it('should accept all roots when IMAGE_WORKSPACE_ALLOWED_ROOTS is not set', async () => {
+    it('should accept roots without an allowlist only in trusted stdio mode', async () => {
       // makeService() called with no args → no allowlist → any path allowed
       const mockServer = {
         listRoots: jest.fn().mockResolvedValue({

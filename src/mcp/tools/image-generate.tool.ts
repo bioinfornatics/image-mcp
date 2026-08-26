@@ -12,7 +12,9 @@ import { ImageGenerateSchema, ResponseFormat, PROMPT_MAX_LENGTH_GPT, resolveMode
 import { sanitisePrompt, maskSecret } from '../../security/sanitise';
 import { LATEST_MODEL } from '../../config/models';
 import { providerErrorToToolResult } from './provider-error-result';
-import { imageGenerationCounter, imageModelFallbackCounter } from '../../health/metrics.controller';
+import { imageGenerationCounter, imageModelFallbackCounter, imageStageDuration, imageModelMetricLabel } from '../../health/metrics.controller';
+import { aggregateImageUsage, estimatePublicCost, newRequestId, promptHash } from '../../telemetry/image-observability';
+import * as path from 'path';
 
 @Injectable()
 export class ImageGenerateTool {
@@ -60,6 +62,8 @@ Args:
   - output_compression (integer 0–100, optional): for webp/jpeg
   - moderation (string, optional): auto|low (GPT models only)
   - save_to_workspace (boolean, optional): save to MCP workspace root, default: false
+  - workspace_output_path (string, optional): safe relative path below workspace generated/
+  - disable_prompt_enhancement (boolean, optional): disable sampling for deterministic benchmarks
   - skip_elicitation (boolean, optional): suppress interactive quality/size form, default: false
   - response_format (string, optional): markdown|json, default: markdown
 
@@ -81,6 +85,16 @@ Error cases: invalid model name, prompt too long, n>10, provider auth failure.`,
   }
 
   async execute(rawParams: unknown, server?: Server) {
+    const startedAt = performance.now();
+    const requestId = newRequestId();
+    const timings: Record<string, number> = {};
+    const timed = async <T>(stage: string, model: string, operation: () => Promise<T>): Promise<T> => {
+      const start = performance.now();
+      try { return await operation(); } finally {
+        timings[stage] = Math.round((performance.now() - start) * 1000) / 1000;
+        imageStageDuration.observe({ stage, model: imageModelMetricLabel(model), provider: this.provider.name }, timings[stage] / 1000);
+      }
+    };
     const configuredModel = this.provider.configuredModel;
     const defaultModel = this.provider.defaultModel ?? configuredModel ?? LATEST_MODEL;
     const availableModels = this.provider.availableModels;
@@ -102,7 +116,10 @@ Error cases: invalid model name, prompt too long, n>10, provider auth failure.`,
     const effectiveRawParams = rawObject && !requestedModel
       ? { ...rawObject, model: defaultModel }
       : rawParams;
+    const validationStart = performance.now();
     const parseResult = ImageGenerateSchema.safeParse(effectiveRawParams);
+    timings['validation'] = Math.round((performance.now() - validationStart) * 1000) / 1000;
+    imageStageDuration.observe({ stage: 'validation', model: imageModelMetricLabel(requestedModel || defaultModel), provider: this.provider.name }, timings['validation'] / 1000);
     if (!parseResult.success) {
       return {
         isError: true,
@@ -120,8 +137,11 @@ Error cases: invalid model name, prompt too long, n>10, provider auth failure.`,
     try {
       // US-018: Sanitise prompt (strips null bytes, trims, enforces max length)
       let prompt: string;
+      let inputPrompt = '';
+      let enhancementState: 'applied' | 'disabled' | 'unavailable' = params.disable_prompt_enhancement ? 'disabled' : 'unavailable';
       try {
         prompt = sanitisePrompt(params.prompt, PROMPT_MAX_LENGTH_GPT);
+        inputPrompt = prompt;
       } catch (sanitiseErr) {
         const msg = sanitiseErr instanceof Error ? sanitiseErr.message : String(sanitiseErr);
         return {
@@ -145,11 +165,11 @@ Error cases: invalid model name, prompt too long, n>10, provider auth failure.`,
       // the sampling step can incorporate those choices into the enhanced prompt.
       // skip_elicitation=true lets automated callers bypass the interactive form.
       if (server && !params.skip_elicitation) {
-        const elicited = await this.elicitation.requestImageParams(server, {
+        const elicited = await timed('elicitation', params.model, () => this.elicitation.requestImageParams(server, {
           hasQuality: params.quality !== 'auto' && params.quality !== undefined,
           hasSize: params.size !== 'auto' && params.size !== undefined,
           model: params.model,
-        });
+        }));
         if (elicited) {
           if (typeof elicited['quality'] === 'string') {
             params.quality = elicited['quality'] as typeof params.quality;
@@ -158,20 +178,23 @@ Error cases: invalid model name, prompt too long, n>10, provider auth failure.`,
             params.size = elicited['size'] as typeof params.size;
           }
         }
-      }
+      } else { timings['elicitation'] = 0; }
 
       // M4: Sampling — enhance prompt via client LLM AFTER elicitation.
       // Quality/size context is now resolved, so the LLM can produce a
       // prompt optimised for the actual output dimensions and fidelity.
-      if (server) {
-        prompt = await this.sampling.enhancePrompt(server, prompt, {
+      if (server && !params.disable_prompt_enhancement) {
+        prompt = await timed('enhancement', params.model, () => this.sampling.enhancePrompt(server, prompt, {
           model:          params.model,
           quality:        params.quality,
           size:           params.size,
           output_format:  params.output_format,
           background:     params.background,
           n:              params.n,
-        });
+        }));
+        enhancementState = 'applied';
+      } else {
+        timings['enhancement'] = 0;
       }
 
       const request = {
@@ -191,7 +214,7 @@ Error cases: invalid model name, prompt too long, n>10, provider auth failure.`,
       let fallbackReason: string | undefined;
       let results: ImageResult[];
       try {
-        results = await this.provider.generate(request);
+        results = await timed('provider', params.model, () => this.provider.generate(request));
       } catch (error) {
         if (error instanceof ImageProviderError &&
             error.code === 'CONTENT_SAFETY_BLOCK' && error.stage === 'output' &&
@@ -199,40 +222,59 @@ Error cases: invalid model name, prompt too long, n>10, provider auth failure.`,
           fallbackUsed = true;
           fallbackReason = error.code;
           imageModelFallbackCounter.inc({
-            from_model: params.model,
-            to_model: params.fallback_model,
+            from_model: imageModelMetricLabel(params.model),
+            to_model: imageModelMetricLabel(params.fallback_model),
             reason: error.code,
           });
-          results = await this.provider.generate({ ...request, model: params.fallback_model });
+          results = await timed('provider_fallback', params.fallback_model, () => this.provider.generate({ ...request, model: params.fallback_model! }));
         } else {
           throw error;
         }
       }
 
       imageGenerationCounter.inc({
-        model: results[0]?.model ?? params.model,
+        model: imageModelMetricLabel(results[0]?.model ?? params.model),
         provider: this.provider.name,
         status: fallbackUsed ? 'success_fallback' : 'success',
       });
 
-      const savedPaths = await Promise.all(
+      const savedPaths = await timed('storage', params.model, () => Promise.all(
         results.map((img) => this.storage.saveImage(img.b64_json, img.format)),
-      );
+      ));
 
       const workspacePaths: string[] = [];
       if (params.save_to_workspace && server) {
-        for (const img of results) {
-          const saved = await this.roots.saveImageToWorkspace(server, img.b64_json, img.format);
+        const copyStart = performance.now();
+        for (const [index, img] of results.entries()) {
+          const requestedPath = params.workspace_output_path
+            ? (results.length === 1 ? params.workspace_output_path : (() => {
+                const ext = path.extname(params.workspace_output_path!);
+                const stem = ext ? params.workspace_output_path!.slice(0, -ext.length) : params.workspace_output_path!;
+                return stem + `-${index + 1}` + ext;
+              })())
+            : undefined;
+          const saved = await this.roots.saveImageToWorkspace(server, img.b64_json, img.format, requestedPath);
+          if (!saved && requestedPath) throw new Error(`Unsafe or occupied workspace_output_path: ${requestedPath}`);
           if (saved) workspacePaths.push(saved);
         }
-      }
+        timings['workspace_copy'] = Math.round((performance.now() - copyStart) * 1000) / 1000;
+        imageStageDuration.observe({ stage: 'workspace_copy', model: imageModelMetricLabel(params.model), provider: this.provider.name }, timings['workspace_copy'] / 1000);
+      } else { timings['workspace_copy'] = 0; }
 
       const experimental = isExperimentalResolution(params.size);
       const fallback = fallbackUsed
         ? { requestedModel: params.model, reason: fallbackReason! }
         : undefined;
+      timings['total'] = Math.round((performance.now() - startedAt) * 1000) / 1000;
+      imageStageDuration.observe({ stage: 'total', model: imageModelMetricLabel(results[0]?.model ?? params.model), provider: this.provider.name }, timings['total'] / 1000);
+      const provenance = results[0]?.provenance ?? { configured_deployment: configuredModel, requested_model: requestedModel,
+        resolved_deployment: results[0]?.model, effective_model: results[0]?.model ?? params.model };
+      const metadata = { request_id: results[0]?.requestId ?? requestId, timings_ms: timings, enhancement_state: enhancementState,
+        input_prompt_sha256: promptHash(inputPrompt), effective_prompt_sha256: promptHash(prompt), provenance,
+        usage: aggregateImageUsage(results.map((result) => result.usage)),
+        estimated_cost: estimatePublicCost(results[0]?.model ?? params.model, aggregateImageUsage(results.map((result) => result.usage))) };
       const text = params.response_format === ResponseFormat.JSON
-        ? this.formatJson(results, params.model, savedPaths, workspacePaths, experimental, fallback)
+        ? this.formatJson(results, params.model, savedPaths, workspacePaths, experimental, fallback, metadata)
         : this.formatMarkdown(results, prompt, savedPaths, workspacePaths, experimental, fallback);
       return {
         content: [
@@ -295,8 +337,10 @@ Error cases: invalid model name, prompt too long, n>10, provider auth failure.`,
     workspacePaths: string[] = [],
     experimental = false,
     fallback?: { requestedModel: string; reason: string },
+    metadata?: Record<string, unknown>,
   ): string {
     return JSON.stringify({
+      ...metadata,
       model: results[0]?.model ?? model,
       requested_model: fallback?.requestedModel ?? model,
       effective_model: results[0]?.model ?? model,

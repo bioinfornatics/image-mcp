@@ -6,6 +6,23 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [0.3.0] — 2026-08-26
+
+### Added
+- Route discovered Microsoft MAI-Image-2.5-Flash deployments through the MAI generation API with conservative, registry-backed capabilities.
+- Return explicit configured, requested, resolved, and effective model provenance, plus input/effective prompt hashes and prompt-enhancement state.
+- Report per-stage and total timings for validation, elicitation, enhancement, provider calls, storage, and workspace copies.
+- Normalize provider usage counters and support opt-in public-price `estimated_cost` metadata with authoritative-source provenance and explicit unavailable states.
+- Document routing, provenance, output-path behavior, timings, usage normalization, and cost estimation in `docs/IMAGE_OBSERVABILITY.md`.
+
+### Changed
+- Support deterministic relative workspace output paths below accepted MCP roots, including collision-safe names for multiple generated images.
+- Expose bounded model-family labels and stage latency histograms for operational observability without leaking requested model or deployment names.
+
+### Security
+- Harden workspace writes against absolute paths, traversal, symlink escapes, partial writes, overwrites, and unapproved roots in HTTP or multi-user transports.
+- Fail closed for unknown capabilities, invalid or stale pricing data, missing usage counters, and non-finite cost calculations; never present estimates as billed or actual cost.
+
 ## [0.2.1] — 2026-08-21
 
 ### Fixed
@@ -237,7 +254,13 @@ Migrate before upgrading to v0.3.0.
 
 ---
 
-[Unreleased]: https://github.com/bioinfornatics/image-mcp/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/bioinfornatics/image-mcp/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/bioinfornatics/image-mcp/compare/v0.2.1...v0.3.0
+[0.2.1]: https://github.com/bioinfornatics/image-mcp/compare/v0.2.0...v0.2.1
+[0.2.0]: https://github.com/bioinfornatics/image-mcp/compare/v0.1.7...v0.2.0
+[0.1.7]: https://github.com/bioinfornatics/image-mcp/compare/v0.1.6...v0.1.7
+[0.1.6]: https://github.com/bioinfornatics/image-mcp/compare/v0.1.5...v0.1.6
+[0.1.5]: https://github.com/bioinfornatics/image-mcp/compare/v0.1.2...v0.1.5
 [0.1.2]: https://github.com/bioinfornatics/image-mcp/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/bioinfornatics/image-mcp/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/bioinfornatics/image-mcp/compare/v0.0.2...v0.1.0

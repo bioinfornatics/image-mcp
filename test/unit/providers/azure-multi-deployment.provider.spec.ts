@@ -27,20 +27,15 @@ describe('AzureMultiDeploymentProvider', () => {
     expect((fetchImpl.mock.calls[0] as unknown as [string])[0]).toEndWith('/mai/v1/images/generations');
   });
 
-  it('routes explicit gpt-image-2 to the Azure OpenAI client', async () => {
-    const generate = mock(async () => ({ data: [{ b64_json: PNG }] }));
-    const createForDeployment = mock(() => ({ images: { generate } }));
-    const provider = new AzureMultiDeploymentProvider({
-      config,
-      clients: {
-        createForDeployment: createForDeployment as never,
-        createAuthHeaderProvider: mock(() => async () => ({ name: 'api-key', value: 'secret' })),
-      },
-    });
-    const result = await provider.generate({ prompt: 'x', model: 'gpt-image-2', quality: 'high', size: '1024x1024' });
-    expect(createForDeployment).toHaveBeenCalledWith(config, 'gpt-image-2');
-    expect(generate).toHaveBeenCalled();
-    expect(result[0].model).toBe('gpt-image-2');
+  it('rejects explicit gpt-image-2 in static single-deployment mode', async () => {
+    const createForDeployment = mock(() => ({}));
+    const provider = new AzureMultiDeploymentProvider({ config, clients: {
+      createForDeployment: createForDeployment as never,
+      createAuthHeaderProvider: mock(() => async () => ({ name: 'api-key', value: 'secret' })),
+    } });
+    expect(provider.availableModels).toEqual(['MAI-Image-2.5']);
+    await expect(provider.generate({ prompt: 'x', model: 'gpt-image-2' })).rejects.toThrow(/Static Azure mode/);
+    expect(createForDeployment).not.toHaveBeenCalled();
   });
 
   it('discovers arbitrary deployment names and routes from model publisher metadata', async () => {
@@ -87,6 +82,34 @@ describe('AzureMultiDeploymentProvider', () => {
     expect(createForDeployment).toHaveBeenCalledWith(expect.anything(), 'gpt-west');
   });
 
+  it('discovers and routes Microsoft Flash through the MAI endpoint with explicit provenance', async () => {
+    const catalogFetch = mock(async (url: string | URL | Request) => String(url).includes('/deployments')
+      ? response({ value: [{ name: 'flash-prod', modelName: 'MAI-Image-2.5-Flash', modelPublisher: 'Microsoft' }] })
+      : response({ data: [{ b64_json: PNG }] }));
+    const provider = new AzureMultiDeploymentProvider({
+      config: { ...config, deployment: 'flash-prod', foundryProjectEndpoint: 'https://unit.services.ai.azure.com/api/projects/p' },
+      clients: { createForDeployment: mock(() => { throw new Error('wrong adapter'); }),
+        createAuthHeaderProvider: mock(() => async () => ({ name: 'api-key', value: 'secret' })) },
+      fetchImpl: catalogFetch as unknown as typeof fetch,
+    });
+    const result = await provider.generate({ prompt: 'x', model: 'MAI-Image-2.5-Flash', size: '1024x1024' });
+    expect(result[0]).toEqual(expect.objectContaining({ model: 'MAI-Image-2.5-Flash', provenance: {
+      configured_deployment: 'flash-prod', requested_model: 'MAI-Image-2.5-Flash',
+      resolved_deployment: 'flash-prod', effective_model: 'MAI-Image-2.5-Flash',
+    } }));
+    expect((catalogFetch.mock.calls[1] as unknown as [string])[0]).toContain('/mai/v1/images/generations');
+  });
+
+  it('rejects deployment overrides before inference when strict pinning is enabled', async () => {
+    const createForDeployment = mock(() => ({}));
+    const provider = new AzureMultiDeploymentProvider({ config: { ...config, strictDeploymentPinning: true }, clients: {
+      createForDeployment: createForDeployment as never,
+      createAuthHeaderProvider: mock(() => async () => ({ name: 'api-key', value: 'secret' })),
+    } });
+    await expect(provider.generate({ prompt: 'x', model: 'gpt-image-2' })).rejects.toThrow(/Strict Azure deployment pinning/);
+    expect(createForDeployment).not.toHaveBeenCalled();
+  });
+
   it('rejects unknown models before creating an inference client', async () => {
     const createForDeployment = mock(() => ({}));
     const provider = new AzureMultiDeploymentProvider({
@@ -96,7 +119,7 @@ describe('AzureMultiDeploymentProvider', () => {
         createAuthHeaderProvider: mock(() => async () => ({ name: 'api-key', value: 'secret' })),
       },
     });
-    await expect(provider.generate({ prompt: 'x', model: 'unknown' })).rejects.toThrow(/Available deployed models/);
+    await expect(provider.generate({ prompt: 'x', model: 'unknown' })).rejects.toThrow(/Static Azure mode/);
     expect(createForDeployment).not.toHaveBeenCalled();
   });
 });

@@ -17,6 +17,7 @@ export interface AppConfig {
     models: string[];
     azureAuthMode: AzureAuthMode;
     azureTenantId?: string;
+    strictDeploymentPinning?: boolean;
   };
   entra: {
     tenantId?: string;
@@ -86,6 +87,7 @@ const schemaShape = {
     is: 'azure', then: Joi.string().required().messages({ 'any.required': 'IMAGE_DEPLOYMENT is required when IMAGE_PROVIDER=azure' }), otherwise: Joi.string().optional(),
   }),
   IMAGE_API_VERSION: Joi.string().optional().default('2025-04-01-preview'),
+  IMAGE_STRICT_DEPLOYMENT_PINNING: Joi.boolean().optional().default(false),
   IMAGE_MODELS: Joi.string().optional().default('custom'),
   IMAGE_DEFAULT_MODEL: Joi.string().optional().default(LATEST_MODEL),
   PROVIDER: Joi.string().optional(), OPENAI_API_KEY: Joi.string().optional(), OPENAI_BASE_URL: Joi.string().uri().optional(),
@@ -134,7 +136,7 @@ export const appConfig = (): AppConfig => {
   const transport = (process.env['IMAGE_MCP_TRANSPORT'] as 'http' | 'stdio') || 'http';
   const authMode = canonicalMcpMode(process.env['IMAGE_MCP_AUTH_MODE'] ?? (transport === 'stdio' ? 'none' : azureAuthMode === 'on_behalf_of' ? 'entra' : process.env['IMAGE_REQUIRE_MCP_AUTH'] === 'false' ? 'none' : 'static_bearer')) as McpAuthMode;
   return {
-    imageProvider: { name: provider, apiKey: process.env['IMAGE_API_KEY'], baseUrl: process.env['IMAGE_BASE_URL'] || (provider === 'openrouter' ? 'https://openrouter.ai/api/v1' : 'https://api.openai.com/v1'), foundryProjectEndpoint: process.env['IMAGE_FOUNDRY_PROJECT_ENDPOINT'], deployment: process.env['IMAGE_DEPLOYMENT'], apiVersion: process.env['IMAGE_API_VERSION'] || '2025-04-01-preview', models: (process.env['IMAGE_MODELS'] || 'custom').split(',').map((s) => s.trim()), azureAuthMode, azureTenantId: process.env['IMAGE_AZURE_TENANT_ID'] },
+    imageProvider: { name: provider, apiKey: process.env['IMAGE_API_KEY'], baseUrl: process.env['IMAGE_BASE_URL'] || (provider === 'openrouter' ? 'https://openrouter.ai/api/v1' : 'https://api.openai.com/v1'), foundryProjectEndpoint: process.env['IMAGE_FOUNDRY_PROJECT_ENDPOINT'], deployment: process.env['IMAGE_DEPLOYMENT'], apiVersion: process.env['IMAGE_API_VERSION'] || '2025-04-01-preview', strictDeploymentPinning: process.env['IMAGE_STRICT_DEPLOYMENT_PINNING'] === 'true', models: (process.env['IMAGE_MODELS'] || 'custom').split(',').map((s) => s.trim()), azureAuthMode, azureTenantId: process.env['IMAGE_AZURE_TENANT_ID'] },
     entra: {
       tenantId: process.env['IMAGE_ENTRA_TENANT_ID'], clientId: process.env['IMAGE_ENTRA_CLIENT_ID'],
       audience: process.env['IMAGE_ENTRA_AUDIENCE'], requiredScope: process.env['IMAGE_ENTRA_SCOPE'] || 'mcp.access',

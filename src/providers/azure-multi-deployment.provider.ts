@@ -6,7 +6,7 @@ import { AzureOpenAIClientFactory } from './azure-openai-client.factory';
 import { OpenAICompatibleProvider } from './openai-compatible.provider';
 import { AzureStrategy } from './strategies/azure.strategy';
 import { MaiImageProvider } from './mai-image.provider';
-import { MAI_MODEL_NAME } from './mai-image.constants';
+import { getImageModelCapabilities } from './model-capabilities';
 import { LATEST_MODEL } from '../config/models';
 import { AzureDeploymentCatalog, type AzureDeploymentInfo } from './azure-deployment-catalog';
 
@@ -24,6 +24,7 @@ interface Route { deployment: string; modelName: string; publisher: string; mode
 export class AzureMultiDeploymentProvider implements IImageProvider {
   readonly name = 'azure' as const;
   readonly defaultModel: string;
+  get configuredModel(): string { return this.defaultModel; }
   readonly availableModels: readonly string[];
 
   private readonly config: AppConfig['imageProvider'];
@@ -36,7 +37,8 @@ export class AzureMultiDeploymentProvider implements IImageProvider {
     this.clients = options.clients;
     this.fetchImpl = options.fetchImpl;
     this.defaultModel = options.config.deployment?.trim() || LATEST_MODEL;
-    this.availableModels = [...new Set([this.defaultModel, MAI_MODEL_NAME, LATEST_MODEL])];
+    // Without discovery this is a single-deployment router. Capabilities are advertised separately.
+    this.availableModels = [this.defaultModel];
     this.catalog = options.catalog ?? (options.config.foundryProjectEndpoint
       ? new AzureDeploymentCatalog({
           endpoint: options.config.foundryProjectEndpoint,
@@ -59,11 +61,19 @@ export class AzureMultiDeploymentProvider implements IImageProvider {
     const effective = route.adapter === 'openai' && params.moderation === 'auto'
       ? { ...params, model: route.modelName, moderation: undefined }
       : { ...params, model: route.modelName };
-    return this.providerFor(route).generate(effective);
+    const results = await this.providerFor(route).generate(effective);
+    return results.map((result) => ({ ...result, model: route.modelName, provenance: {
+      configured_deployment: this.defaultModel, requested_model: params.model || undefined,
+      resolved_deployment: route.deployment, effective_model: route.modelName,
+    } }));
   }
 
   async edit(params: EditParams): Promise<ImageResult[]> {
     const route = await this.resolveRoute(params.model);
+    const capabilities = getImageModelCapabilities(route.modelName);
+    if (capabilities?.editing !== 'supported') {
+      throw new Error(`Image editing is not enabled for ${route.modelName}: capability is ${capabilities?.editing ?? 'unknown'}.`);
+    }
     return this.providerFor(route).edit({ ...params, model: route.modelName });
   }
 
@@ -91,6 +101,12 @@ export class AzureMultiDeploymentProvider implements IImageProvider {
 
   private async resolveRoute(requested: string | undefined): Promise<Route> {
     const target = requested?.trim() || this.defaultModel;
+    if (this.config.strictDeploymentPinning && target.toLowerCase() !== this.defaultModel.toLowerCase()) {
+      throw new Error(`Strict Azure deployment pinning rejects "${target}"; configured deployment is "${this.defaultModel}".`);
+    }
+    if (!this.catalog && target.toLowerCase() !== this.defaultModel.toLowerCase()) {
+      throw new Error(`Static Azure mode permits only configured deployment "${this.defaultModel}".`);
+    }
     if (!this.catalog) return this.staticRoute(target);
     const routes = await this.supportedRoutes();
     const exact = routes.find((route) => route.deployment === target);
@@ -120,8 +136,10 @@ export class AzureMultiDeploymentProvider implements IImageProvider {
     if (model.toLowerCase() === LATEST_MODEL.toLowerCase() && publisher.toLowerCase() === 'openai') {
       return { deployment: info.name, modelName: LATEST_MODEL, publisher, modelVersion: info.modelVersion, adapter: 'openai' };
     }
-    if (model.toLowerCase() === MAI_MODEL_NAME.toLowerCase() && publisher.toLowerCase() === 'microsoft') {
-      return { deployment: info.name, modelName: MAI_MODEL_NAME, publisher, modelVersion: info.modelVersion, adapter: 'mai' };
+    const capabilities = getImageModelCapabilities(model);
+    if (capabilities?.endpoint === 'mai-v1' && capabilities.generation === 'supported' &&
+        publisher.toLowerCase() === capabilities.publisher.toLowerCase()) {
+      return { deployment: info.name, modelName: capabilities.family, publisher, modelVersion: info.modelVersion, adapter: 'mai' };
     }
     return undefined;
   }
@@ -129,8 +147,9 @@ export class AzureMultiDeploymentProvider implements IImageProvider {
   private staticRoute(model: string): Route {
     const match = this.availableModels.find((candidate) => candidate.toLowerCase() === model.toLowerCase());
     if (!match) throw new Error(`Unsupported Azure image model "${model}". Available deployed models: ${this.availableModels.join(', ')}.`);
-    return match.toLowerCase() === MAI_MODEL_NAME.toLowerCase()
-      ? { deployment: match, modelName: MAI_MODEL_NAME, publisher: 'Microsoft', adapter: 'mai' }
+    const capabilities = getImageModelCapabilities(match);
+    return capabilities?.endpoint === 'mai-v1'
+      ? { deployment: match, modelName: capabilities.family, publisher: 'Microsoft', adapter: 'mai' }
       : { deployment: match, modelName: LATEST_MODEL, publisher: 'OpenAI', adapter: 'openai' };
   }
 

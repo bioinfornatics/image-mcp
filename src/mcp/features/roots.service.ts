@@ -5,177 +5,35 @@ import { randomUUID } from 'crypto';
 import * as path from 'path';
 import { maskSecret } from '../../security/sanitise';
 import { fileUriToLocalPath, isPathWithin } from './path-utils';
-
-export interface WorkspaceRoot {
-  uri: string;
-  name?: string;
-}
-
+export interface WorkspaceRoot { uri: string; name?: string; }
 @Injectable()
 export class RootsService {
   private readonly logger = new Logger(RootsService.name);
-
-  /**
-   * Server-side allowlist of permitted workspace root prefixes.
-   * Read from IMAGE_WORKSPACE_ALLOWED_ROOTS using the platform path delimiter
-   * (`:` on POSIX, `;` on Windows).
-   *
-   * Examples:
-   *   IMAGE_WORKSPACE_ALLOWED_ROOTS=/home/user/workspace:/home/user/documents
-   *   IMAGE_WORKSPACE_ALLOWED_ROOTS=C:\\workspace;D:\\documents
-   *   IMAGE_WORKSPACE_ALLOWED_ROOTS=/tmp/generated        (single path)
-   *
-   * If the env var is empty or unset, ALL file:// roots are accepted
-   * (backward-compatible default for trusted single-user setups).
-   *
-   * In any multi-user or production deployment set this var explicitly.
-   */
-  private readonly allowedRootPrefixes: string[] = (
-    process.env['IMAGE_WORKSPACE_ALLOWED_ROOTS'] ?? ''
-  )
-    .split(path.delimiter)
-    .map((p) => p.trim())
-    .filter(Boolean)
-    .map((p) => path.resolve(p)); // normalise (remove trailing slash, resolve ..)
-
-  // ─── public API ───────────────────────────────────────────────────────────
-
-  /**
-   * Discover workspace roots from the MCP client.
-   * Returns an empty array if the client doesn't support roots.
-   */
-  async getRoots(server: Server): Promise<WorkspaceRoot[]> {
-    try {
-      // MCP server v2: listRoots() is exposed by the inner Server connection.
-      const result = await server.listRoots();
-      return (result?.roots as WorkspaceRoot[]) ?? [];
-    } catch (err) {
-      this.logger.debug(`Roots not available: ${maskSecret(String(err))}`);
-      return [];
-    }
+  private readonly transport = (process.env['IMAGE_MCP_TRANSPORT'] ?? 'http').toLowerCase();
+  private readonly allowedRootPrefixes = (process.env['IMAGE_WORKSPACE_ALLOWED_ROOTS'] ?? '').split(path.delimiter).map((value) => value.trim()).filter(Boolean).map((value) => path.resolve(value));
+  async getRoots(server: Server): Promise<WorkspaceRoot[]> { try { return (await server.listRoots())?.roots as WorkspaceRoot[] ?? []; } catch (error) { this.logger.debug('Roots not available: ' + maskSecret(String(error))); return []; } }
+  async saveImageToWorkspace(server: Server, b64Data: string, format: 'png' | 'jpeg' | 'webp' = 'png', relativeOutputPath?: string): Promise<string | null> {
+    if (this.transport !== 'stdio' && this.allowedRootPrefixes.length === 0) { this.logger.warn('Workspace saving is disabled for HTTP/multi-user mode until IMAGE_WORKSPACE_ALLOWED_ROOTS is configured.'); return null; }
+    for (const root of await this.getRoots(server)) { const rootPath = fileUriToLocalPath(root.uri); if (!rootPath || !await this.isRootAllowed(rootPath)) continue; const result = await this.writeImage(rootPath, b64Data, format, relativeOutputPath); if (result) return result; } return null;
   }
-
-  /**
-   * Save a base64 image to the first workspace root that passes the allowlist.
-   *
-   * Security guarantees:
-   *   1. Only file:// URIs are accepted (no http://, smb://, etc.)
-   *   2. Root path validated against IMAGE_WORKSPACE_ALLOWED_ROOTS allowlist (if set)
-   *   3. Generated filename is timestamp-based — no user input in the filename
-   *   4. Final resolved path checked to be strictly inside root (path traversal)
-   *
-   * Returns the absolute file path written, or null if no safe root is available.
-   */
-  async saveImageToWorkspace(
-    server: Server,
-    b64Data: string,
-    format: 'png' | 'jpeg' | 'webp' = 'png',
-  ): Promise<string | null> {
-    const roots = await this.getRoots(server);
-
-    for (const root of roots) {
-      const rootPath = this.uriToPath(root.uri);
-      if (!rootPath) {
-        this.logger.debug(`Skipping non-file:// root: ${root.uri}`);
-        continue;
-      }
-
-      // H6: validate root against server-side allowlist
-      if (!await this.isRootAllowed(rootPath)) {
-        this.logger.warn(
-          `Root rejected by allowlist: ${rootPath}. ` +
-          `Set IMAGE_WORKSPACE_ALLOWED_ROOTS to permit it.`,
-        );
-        continue;
-      }
-
-      const result = await this.writeImage(rootPath, b64Data, format);
-      if (result) return result;
-    }
-
-    return null;
-  }
-
-  // ─── private ──────────────────────────────────────────────────────────────
-
   private async isRootAllowed(rootPath: string): Promise<boolean> {
-    // No allowlist configured → accept all roots (single-user / dev mode)
-    if (this.allowedRootPrefixes.length === 0) return true;
-
-    try {
-      const rootReal = await fs.realpath(rootPath);
-      for (const prefix of this.allowedRootPrefixes) {
-        try {
-          const prefixReal = await fs.realpath(prefix);
-          if (isPathWithin(prefixReal, rootReal)) return true;
-        } catch {
-          // Ignore unavailable allowlist entries; they grant no access.
-        }
-      }
-    } catch {
-      return false;
-    }
-    return false;
+    if (this.allowedRootPrefixes.length === 0) return this.transport === 'stdio';
+    try { const rootReal = await fs.realpath(rootPath); for (const prefix of this.allowedRootPrefixes) { try { if (isPathWithin(await fs.realpath(prefix), rootReal)) return true; } catch { /* unavailable entries grant nothing */ } } } catch { return false; } return false;
   }
-
-  private async writeImage(
-    rootPath: string,
-    b64Data: string,
-    format: 'png' | 'jpeg' | 'webp',
-  ): Promise<string | null> {
-    // Timestamp-only filename — no user input. Resolve and validate before
-    // creating any directory so malformed roots cannot create side effects.
-    const rootResolved = path.resolve(rootPath);
-    let rootReal: string;
+  private async writeImage(rootPath: string, b64Data: string, format: 'png' | 'jpeg' | 'webp', relativeOutputPath?: string): Promise<string | null> {
+    let temp: string | undefined;
     try {
-      const rootStat = await fs.lstat(rootResolved);
-      if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) return null;
-      rootReal = await fs.realpath(rootResolved);
-    } catch (error) {
-      this.logger.warn(`Workspace root unavailable: ${maskSecret(String(error))}`);
-      return null;
-    }
-
-    const generated = path.join(rootReal, 'generated');
-    try {
-      await fs.mkdir(generated, { mode: 0o700 });
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') {
-        this.logger.warn(`Cannot create workspace directory: ${maskSecret(String(error))}`);
-        return null;
-      }
-    }
-
-    try {
-      const generatedStat = await fs.lstat(generated);
-      if (!generatedStat.isDirectory() || generatedStat.isSymbolicLink()) {
-        this.logger.warn('Workspace generated directory is a symlink/junction or not a directory.');
-        return null;
-      }
-      const generatedReal = await fs.realpath(generated);
-      if (!isPathWithin(rootReal, generatedReal) || generatedReal === rootReal) return null;
-
-      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-      const filename = `img_${timestamp}_${randomUUID()}.${format}`;
-      const resolved = path.resolve(generatedReal, filename);
-      if (!isPathWithin(generatedReal, resolved) || resolved === generatedReal) return null;
-
-      const buffer = Buffer.from(b64Data.replace(/^data:[^;]+;base64,/, ''), 'base64');
-      const handle = await fs.open(resolved, 'wx', 0o600);
-      try {
-        await handle.writeFile(buffer);
-      } finally {
-        await handle.close();
-      }
-      this.logger.log(`Image saved: ${resolved}`);
-      return resolved;
-    } catch (error) {
-      this.logger.warn(`Unsafe or unavailable workspace path: ${maskSecret(String(error))}`);
-      return null;
-    }
-  }
-
-  private uriToPath(uri: string): string | null {
-    return fileUriToLocalPath(uri);
+      const rootResolved = path.resolve(rootPath); const rootStat = await fs.lstat(rootResolved); if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) return null; const rootReal = await fs.realpath(rootResolved);
+      const generated = path.join(rootReal, 'generated'); await fs.mkdir(generated, { mode: 0o700, recursive: true }); const generatedStat = await fs.lstat(generated); if (!generatedStat.isDirectory() || generatedStat.isSymbolicLink()) return null;
+      const generatedReal = await fs.realpath(generated); if (!isPathWithin(rootReal, generatedReal) || generatedReal === rootReal) return null;
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-'); const filename = relativeOutputPath ?? ('img_' + timestamp + '_' + randomUUID() + '.' + format);
+      if (path.isAbsolute(filename) || filename.split(/[\\/]/).some((part) => !part || part === '.' || part === '..')) return null;
+      const resolved = path.resolve(generatedReal, filename); const parent = path.dirname(resolved); if (!isPathWithin(generatedReal, resolved) || resolved === generatedReal) return null;
+      let cursor = generatedReal; for (const component of path.relative(generatedReal, parent).split(path.sep).filter(Boolean)) { cursor = path.join(cursor, component); try { const stat = await fs.lstat(cursor); if (!stat.isDirectory() || stat.isSymbolicLink()) return null; } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; await fs.mkdir(cursor, { mode: 0o700 }); const stat = await fs.lstat(cursor); if (!stat.isDirectory() || stat.isSymbolicLink()) return null; } }
+      const parentReal = await fs.realpath(parent); if (parentReal !== parent || !isPathWithin(generatedReal, parentReal)) return null;
+      temp = path.join(parentReal, '.image-mcp-' + randomUUID() + '.tmp'); const handle = await fs.open(temp, 'wx', 0o600);
+      try { await handle.writeFile(Buffer.from(b64Data.replace(/^data:[^;]+;base64,/, ''), 'base64')); await handle.sync(); } finally { await handle.close(); }
+      if (await fs.realpath(parent) !== parentReal) return null; await fs.link(temp, resolved); await fs.unlink(temp); temp = undefined; this.logger.log('Image saved: ' + resolved); return resolved;
+    } catch (error) { this.logger.warn('Unsafe or unavailable workspace path: ' + maskSecret(String(error))); return null; } finally { if (temp) await fs.unlink(temp).catch(() => undefined); }
   }
 }
