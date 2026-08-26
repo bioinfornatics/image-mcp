@@ -126,6 +126,8 @@ describe('ImageGenerateTool — with M4 features', () => {
       expect(registered[0].description).toContain('omit model');
       expect(registered[0].description).toContain('quality is not supported');
       expect(registered[0].description).not.toContain('gpt-image-2 (default/recommended)');
+      expect(registered[0].description).toContain('include its absolute-path image Markdown unchanged');
+      expect(registered[0].description).toContain('Never shorten it to a relative path');
     });
   });
 
@@ -368,6 +370,8 @@ describe('ImageGenerateTool — with M4 features', () => {
       expect(result.isError).toBeFalsy();
       const text: string = result.content[0].text;
       expect(text).toContain(savedPath);
+      expect(text).toContain(`![Generated image 1](${savedPath})`);
+      expect(text).toContain('include each **Display in Goose** Markdown image unchanged');
     });
 
     it('should not include saved_to when save failed (returned null)', async () => {
@@ -446,6 +450,7 @@ describe('ImageGenerateTool — with M4 features', () => {
       const parsed = JSON.parse(result.content[0].text);
       expect(parsed.images[0].saved_to).toBe('/tmp/image-mcp/image.png');
       expect(parsed.images[0].workspace_copy).toBe(savedPath);
+      expect(parsed.images[0].display_markdown).toBe(`![Generated image 1](${savedPath})`);
     });
 
     it('should omit saved_to from JSON output when not saved', async () => {

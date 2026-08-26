@@ -67,7 +67,8 @@ Args:
   - skip_elicitation (boolean, optional): suppress interactive quality/size form, default: false
   - response_format (string, optional): markdown|json, default: markdown
 
-Returns: Base64-encoded image(s) with metadata. If save_to_workspace=true, also returns file path.
+Returns: Base64-encoded image(s) with metadata. If save_to_workspace=true, also returns the absolute workspace path and ready-to-use Markdown.
+When a workspace copy is returned, include its absolute-path image Markdown unchanged in the final response so Goose renders the image. Never shorten it to a relative path.
 
 Error cases: invalid model name, prompt too long, n>10, provider auth failure.`,
         inputSchema: ImageGenerateSchema,
@@ -324,8 +325,16 @@ Error cases: invalid model name, prompt too long, n>10, provider auth failure.`,
       lines.push(`## Image ${i + 1}`, `**Model:** ${img.model}`);
       if (img.revised_prompt) lines.push(`**Revised prompt:** ${img.revised_prompt}`);
       lines.push(`**Saved to:** ${savedPaths[i]}`);
-      if (workspacePaths[i]) lines.push(`**Workspace copy:** ${workspacePaths[i]}`);
+      if (workspacePaths[i]) {
+        lines.push(
+          `**Workspace copy:** ${workspacePaths[i]}`,
+          `**Display in Goose:** ![Generated image ${i + 1}](${workspacePaths[i]})`,
+        );
+      }
       lines.push('');
+    }
+    if (workspacePaths.length > 0) {
+      lines.push('> Assistant: include each **Display in Goose** Markdown image unchanged in the final response. Keep the absolute path; do not replace it with a relative path.', '');
     }
     return lines.join('\n');
   }
@@ -357,7 +366,10 @@ Error cases: invalid model name, prompt too long, n>10, provider auth failure.`,
         file_uri: pathToFileUri(savedPaths[i]),
         revised_prompt: img.revised_prompt,
         created: img.created,
-        ...(workspacePaths[i] ? { workspace_copy: workspacePaths[i] } : {}),
+        ...(workspacePaths[i] ? {
+          workspace_copy: workspacePaths[i],
+          display_markdown: `![Generated image ${i + 1}](${workspacePaths[i]})`,
+        } : {}),
       })),
     }, null, 2);
   }

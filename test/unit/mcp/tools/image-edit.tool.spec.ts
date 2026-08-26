@@ -187,6 +187,21 @@ describe('ImageEditTool', () => {
       );
 
       expect(result.content[0].text).toContain(savedPath);
+      expect(result.content[0].text).toContain(`![Edited image 1](${savedPath})`);
+      expect(result.content[0].text).toContain('include each **Display in Goose** Markdown image unchanged');
+    });
+
+    it('should expose display_markdown in JSON output', async () => {
+      const savedPath = '/workspace/generated/img.png';
+      mockRoots.saveImageToWorkspace.mockResolvedValue(savedPath);
+
+      const result = await tool.execute(
+        { image: VALID_B64, prompt: 'test', save_to_workspace: true, response_format: 'json' },
+        mockServer,
+      );
+
+      const parsed = JSON.parse(result.content[0].text);
+      expect(parsed.images[0].display_markdown).toBe(`![Edited image 1](${savedPath})`);
     });
 
     it('should NOT call roots.saveImageToWorkspace when server not provided', async () => {

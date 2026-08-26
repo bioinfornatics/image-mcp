@@ -6,6 +6,13 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [0.3.3] — 2026-08-26
+
+### Added
+- Return ready-to-use absolute-path Markdown for generated, edited, and variation images saved to an MCP workspace.
+- Instruct MCP clients such as Goose to preserve that Markdown unchanged so local images render directly in the conversation.
+- Expose the same rendering snippet as `display_markdown` in JSON responses.
+
 ## [0.3.2] — 2026-08-26
 
 ### Fixed

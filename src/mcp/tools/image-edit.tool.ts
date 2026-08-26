@@ -45,7 +45,8 @@ Args:
   - save_to_workspace (boolean, optional): Save output to workspace root
   - response_format (string, optional): markdown|json, default: markdown
 
-Returns: Base64-encoded edited image(s).`,
+Returns: Base64-encoded edited image(s). When save_to_workspace=true, also returns ready-to-use absolute-path Markdown.
+When a workspace copy is returned, include its image Markdown unchanged in the final response so Goose renders the image. Never shorten it to a relative path.`,
         inputSchema: ImageEditSchema,
         annotations: {
           readOnlyHint: false,
@@ -147,7 +148,10 @@ Returns: Base64-encoded edited image(s).`,
             images: results.map((img, i) => ({
               model: img.model, created: img.created, saved_to: savedPaths[i],
               file_uri: pathToFileUri(savedPaths[i]),
-              ...(workspacePaths[i] ? { workspace_copy: workspacePaths[i] } : {}),
+              ...(workspacePaths[i] ? {
+                workspace_copy: workspacePaths[i],
+                display_markdown: `![Edited image ${i + 1}](${workspacePaths[i]})`,
+              } : {}),
             })),
           }, null, 2)
         : this.formatMarkdown(results, savedPaths, workspacePaths, params.prompt, experimental);
@@ -183,8 +187,16 @@ Returns: Base64-encoded edited image(s).`,
     }
     for (const [i, img] of results.entries()) {
       lines.push(`## Image ${i + 1}`, `**Model:** ${img.model}`, `**Saved to:** ${savedPaths[i]}`);
-      if (workspacePaths[i]) lines.push(`**Workspace copy:** ${workspacePaths[i]}`);
+      if (workspacePaths[i]) {
+        lines.push(
+          `**Workspace copy:** ${workspacePaths[i]}`,
+          `**Display in Goose:** ![Edited image ${i + 1}](${workspacePaths[i]})`,
+        );
+      }
       lines.push('');
+    }
+    if (workspacePaths.length > 0) {
+      lines.push('> Assistant: include each **Display in Goose** Markdown image unchanged in the final response. Keep the absolute path; do not replace it with a relative path.', '');
     }
     return lines.join('\n');
   }
