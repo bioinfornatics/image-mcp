@@ -6,6 +6,11 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [0.3.2] — 2026-08-26
+
+### Fixed
+- Invalidate the remote BuildKit cache for Alpine security upgrades so CI scans the current OpenSSL 3.5.8 packages instead of a cached vulnerable layer.
+
 ## [0.3.1] — 2026-08-26
 
 ### Security

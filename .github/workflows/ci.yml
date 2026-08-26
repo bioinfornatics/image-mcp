@@ -245,6 +245,11 @@ jobs:
           curl -f http://localhost:3002/health/live || (docker logs mcp-test && exit 1)
           docker stop mcp-test
 
+      - name: Verify patched OpenSSL packages
+        run: |
+          docker run --rm --entrypoint sh image-mcp:ci -lc \
+            "apk list --installed 2>/dev/null | grep -E '^(libcrypto3|libssl3)-3\\.5\\.8-r0'"
+
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
