@@ -6,6 +6,14 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [0.3.1] — 2026-08-26
+
+### Security
+- Refresh Alpine packages in both Docker build and runtime stages so copied dependencies do not retain OpenSSL packages affected by CVE-2026-14456.
+
+### Fixed
+- Use Bun directly for TypeScript build and type-check scripts so package hooks remain anchored to the repository under wrapped Node environments.
+
 ## [0.3.0] — 2026-08-26
 
 ### Added

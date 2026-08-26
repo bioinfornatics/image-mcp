@@ -1,6 +1,6 @@
 {
   "name": "@bioinfornatics/image-mcp",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Provider-neutral MCP server for AI image generation and editing across OpenAI, Microsoft Foundry, OpenRouter, Together AI, and compatible APIs",
   "license": "CECILL-2.1",
   "repository": {

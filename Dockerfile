@@ -1,7 +1,11 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # Stage 1: Build
 # ─────────────────────────────────────────────────────────────────────────────
-FROM oven/bun:1.3.12-alpine AS builder
+FROM docker.io/oven/bun:1.3.12-alpine AS builder
+
+# Refresh build-stage Alpine libraries as dependencies copied into the runtime
+# can retain vulnerable shared-library packages from the base image.
+RUN apk upgrade --no-cache
 
 WORKDIR /app
 
@@ -18,7 +22,7 @@ RUN bun install --frozen-lockfile --production
 # ─────────────────────────────────────────────────────────────────────────────
 # Stage 2: Runtime
 # ─────────────────────────────────────────────────────────────────────────────
-FROM oven/bun:1.3.12-alpine AS runtime
+FROM docker.io/oven/bun:1.3.12-alpine AS runtime
 
 # Refresh Alpine packages so the runtime contains current security fixes even
 # when the published Bun base-image digest lags behind the Alpine repository.
