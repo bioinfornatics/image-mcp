@@ -3,6 +3,7 @@ import type { McpServer } from '@modelcontextprotocol/server';
 import type { Server } from '@modelcontextprotocol/server';
 import { PROVIDER_TOKEN } from '../../providers/provider.interface';
 import type { IImageProvider, ImageResult } from '../../providers/provider.interface';
+import { WORKSPACE_OUTPUT_PATH_DESCRIPTION } from '../features/workspace-destination';
 import { RootsService } from '../features/roots.service';
 import { ImageStorageService, pathToFileUri } from '../features/image-storage.service';
 import { ImageEditSchema, ResponseFormat, PROMPT_MAX_LENGTH_GPT, isExperimentalResolution } from './schemas';
@@ -42,7 +43,8 @@ Args:
   - output_format (string, optional): png|jpeg|webp
   - output_compression (integer 0–100, optional): For webp/jpeg
   - input_fidelity (string, optional): Identity preservation for gpt-image-1.x — "low"|"high". Not supported by gpt-image-2.
-  - save_to_workspace (boolean, optional): Save output to workspace root
+  - save_to_workspace (boolean, optional): Create additional copies below <workspace>/generated, default: false
+  - workspace_output_path (string, optional): ${WORKSPACE_OUTPUT_PATH_DESCRIPTION}
   - response_format (string, optional): markdown|json, default: markdown
 
 Returns: Base64-encoded edited image(s). When save_to_workspace=true, also returns ready-to-use absolute-path Markdown.
@@ -80,6 +82,9 @@ When a workspace copy is returned, include its image Markdown unchanged in the f
     const params = { ...parseResult.data, model: parseResult.data.model ?? defaultModel };
 
     try {
+      const workspaceDestinations = params.workspace_output_path !== undefined
+        ? await this.roots.prepareWorkspaceOutputs(server, params.workspace_output_path, params.output_format ?? 'png', params.n)
+        : undefined;
       // Aggregate payload size guard (10MB = 10 * 1024 * 1024 bytes of raw b64-decoded data)
       const MAX_AGGREGATE_BYTES = 10 * 1024 * 1024;
       if (params.images && params.images.length > 0) {
@@ -130,11 +135,14 @@ When a workspace copy is returned, include its image Markdown unchanged in the f
       const savedPaths = await Promise.all(
         results.map((img) => this.storage.saveImage(img.b64_json, img.format)),
       );
-      const workspacePaths: string[] = [];
+      const workspacePaths: Array<string | undefined> = new Array(results.length);
       if (params.save_to_workspace && server) {
-        for (const img of results) {
-          const saved = await this.roots.saveImageToWorkspace(server, img.b64_json, img.format);
-          if (saved) workspacePaths.push(saved);
+        for (const [index, img] of results.entries()) {
+          if (workspaceDestinations && !workspaceDestinations[index]) throw new Error('workspace_output_path: provider returned more outputs than requested n.');
+          const saved = workspaceDestinations
+            ? await this.roots.saveImageToDestination(workspaceDestinations[index], img.b64_json, img.format)
+            : await this.roots.saveImageToWorkspace(server, img.b64_json, img.format);
+          workspacePaths[index] = saved ?? undefined;
         }
       }
       const experimental = isExperimentalResolution(params.size);
@@ -174,7 +182,7 @@ When a workspace copy is returned, include its image Markdown unchanged in the f
   }
 
   private formatMarkdown(
-    results: ImageResult[], savedPaths: string[], workspacePaths: string[] = [], prompt: string,
+    results: ImageResult[], savedPaths: string[], workspacePaths: Array<string | undefined> = [], prompt: string,
     experimental = false,
   ): string {
     const lines = ['# Edited Image(s)', '', `**Prompt:** ${prompt}`, ''];
@@ -195,7 +203,7 @@ When a workspace copy is returned, include its image Markdown unchanged in the f
       }
       lines.push('');
     }
-    if (workspacePaths.length > 0) {
+    if (workspacePaths.some(Boolean)) {
       lines.push('> Assistant: include each **Display in Goose** Markdown image unchanged in the final response. Keep the absolute path; do not replace it with a relative path.', '');
     }
     return lines.join('\n');

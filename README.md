@@ -17,7 +17,7 @@
 | 🔍 **provider_list / validate** | Connectivity check without generating an image |
 | ⚡ **MCP Elicitation** | Interactive parameter refinement (quality, size) |
 | 🧠 **MCP Sampling** | Prompt enhancement via client LLM |
-| 💾 **MCP Roots** | Save images directly to your workspace |
+| 💾 **MCP Roots** | Save additional copies under <workspace>/generated |
 | 🔒 **Security** | Bearer-token auth, rate limiting, secret masking, path traversal prevention |
 | 📊 **Observability** | Prometheus `/metrics`, `/health/live`, `/health/ready` |
 
@@ -136,9 +136,9 @@ Azure users can choose among **API key**, **Azure CLI**, and **Microsoft Entra O
 | `IMAGE_OUTPUT_DIR` | ❌ | OS Pictures directory | Override the directory where every generated image is persisted |
 | `IMAGE_LOG_LEVEL` | ❌ | `info` | `debug`/`info`/`warn`/`error` |
 
-Every generated, edited, or variation image is returned as native MCP image content and persisted automatically. The default directory is the freedesktop `XDG_PICTURES_DIR/image-mcp` on Linux (falling back to `~/Images/image-mcp`), `~/Pictures/image-mcp` on macOS, and `%USERPROFILE%\\Pictures\\image-mcp` on Windows. `save_to_workspace: true` additionally creates a copy in the MCP workspace.
+Every generated, edited, or variation image is returned as native MCP image content and persisted automatically. The default directory is the freedesktop `XDG_PICTURES_DIR/image-mcp` on Linux (falling back to `~/Images/image-mcp`), `~/Pictures/image-mcp` on macOS, and `%USERPROFILE%\\Pictures\\image-mcp` on Windows. `save_to_workspace: true` additionally creates a random-name copy under `<workspace>/generated`. For `image_generate` and `image_edit`, `workspace_output_path: "design/target.png"` chooses `<workspace>/generated/design/target.png`. Paths are relative to `generated`: do not include a leading `generated/`. The extension must match `output_format` (default `png`); for `n>1`, `-1`, `-2`, etc. are inserted before it. Explicit paths require `save_to_workspace: true` and available accepted MCP roots, preflight all outputs before the provider call, reject unsafe/occupied/symlink paths, and never silently fall back to another destination. Publication rechecks collisions and is exclusive/atomic; a late collision returns an error without overwriting. See [Workspace File Saving](docs/API.md#24-workspace-file-saving).
 
-Response paths are explicit: `saved_to` is the absolute automatically persisted file, `file_uri` is the canonical `file:` URI for that same file, and `workspace_copy` is present only when `save_to_workspace: true` successfully creates an additional copy under an MCP Root. `IMAGE_WORKSPACE_ALLOWED_ROOTS` uses `:` between POSIX roots and `;` between Windows roots. Only local file roots are supported; UNC/network authorities such as `file://server/share` are rejected.
+Response paths are explicit: `saved_to` is the absolute automatically persisted file, `file_uri` is the canonical `file:` URI for that same file, and `workspace_copy` is present only when `save_to_workspace: true` successfully creates an additional copy under `<workspace>/generated` in an accepted MCP Root. `IMAGE_WORKSPACE_ALLOWED_ROOTS` uses `:` between POSIX roots and `;` between Windows roots. Only local file roots are supported; UNC/network authorities such as `file://server/share` are rejected.
 
 ---
 
@@ -246,7 +246,7 @@ Authorization: Bearer <IMAGE_MCP_API_KEY>   # only if IMAGE_MCP_API_KEY is set
 
 Azure supports discovered MAI-Image-2.5 and MAI-Image-2.5-Flash deployments. The configured deployment is the default; discovered exact deployment names or unambiguous model families may override it unless `IMAGE_STRICT_DEPLOYMENT_PINNING=true`.
 
-Generation JSON includes model and prompt provenance, stage timings, normalized provider usage, and an optional public-price `estimated_cost`. No prices are built in and estimates are never billed cost. Safe deterministic workspace targets are available through `workspace_output_path`; prompt enhancement can be disabled with `disable_prompt_enhancement`.
+Generation JSON includes model and prompt provenance, stage timings, normalized provider usage, and an optional public-price `estimated_cost`. No prices are built in and estimates are never billed cost. Safe deterministic workspace targets for generation and editing are available through `workspace_output_path` relative to `<workspace>/generated`; prompt enhancement can be disabled with `disable_prompt_enhancement`.
 
 See [Image model routing, observability, usage, and cost](docs/IMAGE_OBSERVABILITY.md) for contracts and configuration.
 

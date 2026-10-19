@@ -99,7 +99,13 @@ The `mimeType` reflects the verified response bytes (for example `image/png`, `i
 
 ### 2.4 Workspace File Saving
 
-`save_to_workspace` is a boolean. When `true`, the server creates an additional copy with a generated filename under the MCP workspace `generated/` directory. Every image is also persisted automatically in `IMAGE_OUTPUT_DIR` or the platform Images/Pictures directory.
+`save_to_workspace` is a boolean. When `true`, the server creates additional copies under `<workspace>/generated`, using random filenames by default. Every image is also persisted automatically in `IMAGE_OUTPUT_DIR` or the platform Images/Pictures directory.
+
+For `image_generate` and `image_edit`, set `workspace_output_path` with `save_to_workspace: true` to choose a path **relative to `<workspace>/generated`**. For example, `design/target.png` saves to `<workspace>/generated/design/target.png`; do **not** include a leading `generated/` (`generated/design/target.png` is rejected, not normalized). The extension must exactly match `output_format` (`.png` when omitted). Absolute paths, traversal, empty/dot components, backslashes, platform-unsafe names (including drive/stream syntax and trailing dots/spaces), existing destinations, and symlink/junction components are rejected.
+
+For requested `n > 1`, suffixes `-1`, `-2`, etc. are inserted before the extension (`design/target-1.png`, `design/target-2.png`). Names use requested `n` even if the provider returns fewer outputs; response entries remain aligned with provider output indexes.
+
+Explicit destinations require an MCP server connection and an accepted local root. Every destination is preflighted **before the provider call**; unavailable roots/directories, occupied files and links fail closed, without trying a different root or silently returning only automatic storage. Destinations are pinned to the first accepted root and rechecked when writing, then atomically published exclusively. Provider-time collisions or a provider returning a different format produce an error without overwriting the target (the provider call may already be billed). Parent directories may be created during preflight; multi-output writes are individually atomic, not a batch transaction. Without an explicit path, automatic storage and best-effort random-name workspace copies retain their previous behavior. Variation has no explicit destination parameter.
 
 ### 2.5 Units & Limits
 
@@ -142,7 +148,8 @@ Generates one or more images from a text prompt using OpenAI or Azure OpenAI `gp
 | `moderation` | string | No | `auto` | GPT image moderation level. `low` requires the server opt-in `IMAGE_ALLOW_LOW_MODERATION=true`. |
 | `fallback_model` | string | No | — | Explicit `gpt-image-2` fallback after an output-stage safety block; never used for prompt-stage blocks. |
 | `skip_elicitation` | boolean | No | `false` | Skip interactive size/quality elicitation. |
-| `save_to_workspace` | boolean | No | `false` | Create an additional generated-name copy in the MCP workspace |
+| `save_to_workspace` | boolean | No | `false` | Create additional copies under `<workspace>/generated` |
+| `workspace_output_path` | string | No | — | Relative to `<workspace>/generated`; requires `save_to_workspace=true`; see §2.4 |
 | `response_format` | string | No | `markdown` | Tool response format. `markdown`\|`json` |
 
 **Size options by model:**
@@ -284,7 +291,8 @@ Edits an existing image based on a text prompt. Optionally accepts a mask image 
 | `quality` | string | No | `auto` | Quality setting. See model quality options in §3.1. |
 | `output_format` | string | No | `png` | Output format. `png`\|`jpeg`\|`webp` |
 | `output_compression` | integer | No | `100` | Compression level 0–100 for `jpeg`/`webp` |
-| `save_to_workspace` | boolean | No | `false` | Create an additional generated-name copy in the MCP workspace |
+| `save_to_workspace` | boolean | No | `false` | Create additional copies under `<workspace>/generated` |
+| `workspace_output_path` | string | No | — | Relative to `<workspace>/generated`; requires `save_to_workspace=true`; see §2.4 |
 | `response_format` | string | No | `markdown` | Tool response format. `markdown`\|`json` |
 
 ¹ Exactly one of `image` or `images` must be provided (mutually exclusive; both-provided and neither-provided are rejected at the schema layer).
@@ -352,7 +360,7 @@ Generates one or more variations of an existing image without a text prompt. Use
 | `image` | string | ✅ Yes | — | Base64-encoded PNG image or HTTPS URL. Must be square. Max 20 MB. |
 | `n` | integer | No | `1` | Number of variations to generate. Range: 1–10. |
 | `size` | string | No | `1024x1024` | Output size. One of: `256x256`, `512x512`, `1024x1024` |
-| `save_to_workspace` | boolean | No | `false` | Create additional generated-name workspace copies |
+| `save_to_workspace` | boolean | No | `false` | Create additional random-name copies under `<workspace>/generated` |
 | `response_format` | string | No | `markdown` | Tool response format. `markdown`\|`json` |
 
 > **Note:** `output_format`, `quality`, `background`, and `prompt` are not accepted by this tool. DALL-E 2 always returns PNG at the requested size.
@@ -590,8 +598,8 @@ Sent when the server wants LLM assistance expanding a terse prompt:
 
 The server requests the list of workspace roots when:
 
-1. A tool call includes `save_to_workspace` and the server needs to determine the allowed save locations.
-2. At server startup (if `listChanged` notifications are enabled) to cache the initial roots.
+1. A tool call includes `save_to_workspace: true` and the server needs to determine allowed save locations.
+2. For explicit `workspace_output_path`, roots and all requested output paths are resolved before the provider call (no startup cache).
 
 #### Example `roots/list` Request
 
@@ -625,9 +633,9 @@ The server requests the list of workspace roots when:
 }
 ```
 
-The server uses MCP roots to choose a safe `generated/` workspace directory for additional copies.
+The server uses accepted MCP roots to choose a safe `<workspace>/generated` directory for additional copies. Explicit paths are relative to that directory, not to the root itself.
 
-**Security note:** All paths are validated against roots before any file I/O. See SECURITY.md §6.3.
+**Security note:** Workspace destinations are confined to accepted roots; explicit paths are preflighted before the provider call and rechecked before exclusive atomic publication. See SECURITY.md §6.3.
 
 ---
 

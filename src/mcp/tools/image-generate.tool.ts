@@ -6,6 +6,7 @@ import { ImageProviderError } from '../../providers/provider.interface';
 import type { IImageProvider, ImageResult } from '../../providers/provider.interface';
 import { ElicitationService } from '../features/elicitation.service';
 import { SamplingService } from '../features/sampling.service';
+import { WORKSPACE_OUTPUT_PATH_DESCRIPTION } from '../features/workspace-destination';
 import { RootsService } from '../features/roots.service';
 import { ImageStorageService, pathToFileUri } from '../features/image-storage.service';
 import { ImageGenerateSchema, ResponseFormat, PROMPT_MAX_LENGTH_GPT, resolveModeration, isExperimentalResolution } from './schemas';
@@ -14,7 +15,6 @@ import { LATEST_MODEL } from '../../config/models';
 import { providerErrorToToolResult } from './provider-error-result';
 import { imageGenerationCounter, imageModelFallbackCounter, imageStageDuration, imageModelMetricLabel } from '../../health/metrics.controller';
 import { aggregateImageUsage, estimatePublicCost, newRequestId, promptHash } from '../../telemetry/image-observability';
-import * as path from 'path';
 
 @Injectable()
 export class ImageGenerateTool {
@@ -61,8 +61,8 @@ Args:
   - output_format (string, optional): png|jpeg|webp (GPT models only)
   - output_compression (integer 0–100, optional): for webp/jpeg
   - moderation (string, optional): auto|low (GPT models only)
-  - save_to_workspace (boolean, optional): save to MCP workspace root, default: false
-  - workspace_output_path (string, optional): safe relative path below workspace generated/
+  - save_to_workspace (boolean, optional): create additional copies below <workspace>/generated, default: false
+  - workspace_output_path (string, optional): ${WORKSPACE_OUTPUT_PATH_DESCRIPTION}
   - disable_prompt_enhancement (boolean, optional): disable sampling for deterministic benchmarks
   - skip_elicitation (boolean, optional): suppress interactive quality/size form, default: false
   - response_format (string, optional): markdown|json, default: markdown
@@ -136,6 +136,9 @@ Error cases: invalid model name, prompt too long, n>10, provider auth failure.`,
     const params = { ...parseResult.data, model: parseResult.data.model ?? defaultModel };
 
     try {
+      const workspaceDestinations = params.workspace_output_path !== undefined
+        ? await this.roots.prepareWorkspaceOutputs(server, params.workspace_output_path, params.output_format ?? 'png', params.n)
+        : undefined;
       // US-018: Sanitise prompt (strips null bytes, trims, enforces max length)
       let prompt: string;
       let inputPrompt = '';
@@ -243,20 +246,15 @@ Error cases: invalid model name, prompt too long, n>10, provider auth failure.`,
         results.map((img) => this.storage.saveImage(img.b64_json, img.format)),
       ));
 
-      const workspacePaths: string[] = [];
+      const workspacePaths: Array<string | undefined> = new Array(results.length);
       if (params.save_to_workspace && server) {
         const copyStart = performance.now();
         for (const [index, img] of results.entries()) {
-          const requestedPath = params.workspace_output_path
-            ? (results.length === 1 ? params.workspace_output_path : (() => {
-                const ext = path.extname(params.workspace_output_path!);
-                const stem = ext ? params.workspace_output_path!.slice(0, -ext.length) : params.workspace_output_path!;
-                return stem + `-${index + 1}` + ext;
-              })())
-            : undefined;
-          const saved = await this.roots.saveImageToWorkspace(server, img.b64_json, img.format, requestedPath);
-          if (!saved && requestedPath) throw new Error(`Unsafe or occupied workspace_output_path: ${requestedPath}`);
-          if (saved) workspacePaths.push(saved);
+          if (workspaceDestinations && !workspaceDestinations[index]) throw new Error('workspace_output_path: provider returned more outputs than requested n.');
+          const saved = workspaceDestinations
+            ? await this.roots.saveImageToDestination(workspaceDestinations[index], img.b64_json, img.format)
+            : await this.roots.saveImageToWorkspace(server, img.b64_json, img.format);
+          workspacePaths[index] = saved ?? undefined;
         }
         timings['workspace_copy'] = Math.round((performance.now() - copyStart) * 1000) / 1000;
         imageStageDuration.observe({ stage: 'workspace_copy', model: imageModelMetricLabel(params.model), provider: this.provider.name }, timings['workspace_copy'] / 1000);
@@ -303,7 +301,7 @@ Error cases: invalid model name, prompt too long, n>10, provider auth failure.`,
     results: ImageResult[],
     prompt: string,
     savedPaths: string[],
-    workspacePaths: string[] = [],
+    workspacePaths: Array<string | undefined> = [],
     experimental = false,
     fallback?: { requestedModel: string; reason: string },
   ): string {
@@ -333,7 +331,7 @@ Error cases: invalid model name, prompt too long, n>10, provider auth failure.`,
       }
       lines.push('');
     }
-    if (workspacePaths.length > 0) {
+    if (workspacePaths.some(Boolean)) {
       lines.push('> Assistant: include each **Display in Goose** Markdown image unchanged in the final response. Keep the absolute path; do not replace it with a relative path.', '');
     }
     return lines.join('\n');
@@ -343,7 +341,7 @@ Error cases: invalid model name, prompt too long, n>10, provider auth failure.`,
     results: ImageResult[],
     model: string,
     savedPaths: string[],
-    workspacePaths: string[] = [],
+    workspacePaths: Array<string | undefined> = [],
     experimental = false,
     fallback?: { requestedModel: string; reason: string },
     metadata?: Record<string, unknown>,

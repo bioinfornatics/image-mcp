@@ -340,7 +340,6 @@ describe('ImageGenerateTool — with M4 features', () => {
         mockServer,
         MOCK_RESULT.b64_json,
         expect.any(String),
-        undefined,
       );
     });
 

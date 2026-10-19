@@ -174,7 +174,7 @@ All text fields (`prompt`) passed to the OpenAI API are potentially adversariall
 
 ### 3.2 Workspace Path and Link Safety
 
-`save_to_workspace` is a boolean. The caller cannot choose a filename or relative output path. When enabled, the server obtains fresh MCP Roots and creates a generated-name file under `<root>/generated/`.
+`save_to_workspace` is a boolean. Without an explicit path, the server obtains fresh MCP Roots and creates a random-name file under `<workspace>/generated`. Generation and editing also accept `workspace_output_path` relative to that directory (e.g. `design/target.png`, not `generated/design/target.png`). Explicit paths require `save_to_workspace=true` and a server connection. All requested `n` destinations are pinned to the first accepted root and preflighted before the provider call; unavailable, occupied or linked targets return an error, with no silent root/path fallback.
 
 Security controls:
 
@@ -184,7 +184,13 @@ Security controls:
 - lexical confinement uses `path.relative`, including cross-drive and sibling-prefix rejection;
 - the root and `generated` directory are checked with `lstat` and `realpath`;
 - pre-existing symlinks and Windows junctions are rejected;
-- destination files are created exclusively (`wx`, mode `0600`) with random UUID names.
+- explicit paths reject leading `generated/`, absolute paths, traversal, empty/dot components, backslashes, drive/stream syntax, reserved names, and trailing dots/spaces without normalization;
+- explicit extensions must match `output_format` (default `png`); provider output format is checked again before writing;
+- requested `n>1` uses `-1`, `-2`, etc. before the extension, independent of returned count;
+- all destinations are checked for availability/collisions before the billed provider call and rechecked afterwards;
+- writes use a same-directory UUID temporary file (`wx`, mode `0600`), sync it, and publish by exclusive atomic hard link; temporary files are cleaned on failure.
+
+A provider-time collision fails without overwriting but may occur after billing. Preflight may create safe parent directories. Multiple outputs are individually atomic, not an all-or-nothing batch. No explicit path preserves automatic storage and best-effort random workspace copies; variation has no explicit path parameter.
 
 A portable Node implementation cannot completely eliminate a concurrent local TOCTOU attack by a process that can replace directories between validation and open. Workspace roots should therefore be owned by the server user and not writable by untrusted local users.
 
@@ -452,12 +458,12 @@ MCP Roots exposes the set of workspace directories the MCP host has granted to t
 
 **Security rules:**
 
-1. **Treat `save_to_workspace` as a boolean** and generate filenames server-side under a granted root.
+1. **Treat `save_to_workspace` as a boolean**; optional generation/editing `workspace_output_path` is a validated relative path below `<workspace>/generated`, never an absolute destination.
 2. **Roots must be absolute paths** — reject any root that is not absolute.
 3. **Re-validate roots on each request** — roots may change between requests; do not cache indefinitely.
-4. **If no roots are granted**, disable file-save functionality entirely (return an error rather than guessing a path).
+4. **If no roots are granted**, fail explicit destinations before the provider call rather than guessing a path. Requests without an explicit path retain automatic persistence and best-effort workspace copies.
 
-The implementation canonicalizes local file URIs, validates the server allowlist, rejects links/junctions, and opens the generated file exclusively.
+The implementation canonicalizes local file URIs, validates the server allowlist, rejects links/junctions, and publishes workspace files exclusively and atomically with collision rechecks.
 
 ---
 
@@ -639,9 +645,9 @@ The following security-focused tests **must** exist and pass in CI.
 | Test ID | Description | Expected Result |
 |---------|-------------|-----------------|
 | SEC-001 | Log output when API key is set does not contain the raw key value | Pass — key masked in all log output |
-| SEC-002 | `save_to_workspace` with `../../etc/passwd` is rejected | `McpError` with `InvalidParams` code |
-| SEC-003 | `save_to_workspace` with null byte is rejected | `McpError` with `InvalidParams` code |
-| SEC-004 | `save_to_workspace` with absolute path outside workspace is rejected | `McpError` with `InvalidParams` code |
+| SEC-002 | `workspace_output_path` traversal is rejected | Tool error before provider call |
+| SEC-003 | `workspace_output_path` with null byte is rejected | Tool error before provider call |
+| SEC-004 | Absolute `workspace_output_path` is rejected | Tool error before provider call |
 | SEC-005 | Request with invalid `IMAGE_MCP_API_KEY` returns HTTP 401 | `{ error: 'Unauthorized' }` |
 | SEC-006 | Request without `Authorization` header returns HTTP 401 when key is configured | HTTP 401 |
 | SEC-007 | Rate limit enforced after 20 image_generate calls in 60s | HTTP 429 with `Retry-After` |

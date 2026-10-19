@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { validateWorkspaceOutputPath, WORKSPACE_OUTPUT_PATH_DESCRIPTION } from '../features/workspace-destination';
 import { LATEST_MODEL, OPENAI_MODELS, AZURE_MODELS } from '../../config/models';
 import { MAI_MODEL_NAME, MAI_MIN_EDGE, MAI_MAX_PIXELS } from '../../providers/mai-image.constants';
 import { isMaiModel } from '../../providers/model-capabilities';
@@ -6,6 +7,15 @@ import { isMaiModel } from '../../providers/model-capabilities';
 export enum ResponseFormat {
   MARKDOWN = 'markdown',
   JSON = 'json',
+}
+
+function validateWorkspaceDestination(params: { workspace_output_path?: string; save_to_workspace: boolean; output_format?: 'png' | 'jpeg' | 'webp' }, ctx: z.RefinementCtx): void {
+  if (params.workspace_output_path === undefined) return;
+  if (!params.save_to_workspace) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['workspace_output_path'], message: 'workspace_output_path requires save_to_workspace=true.' });
+  }
+  try { validateWorkspaceOutputPath(params.workspace_output_path, params.output_format ?? 'png'); }
+  catch (error) { ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['workspace_output_path'], message: (error as Error).message }); }
 }
 
 export const PROMPT_MAX_LENGTH_GPT = 32_000;
@@ -226,10 +236,8 @@ export const ImageGenerateSchema = z.object({
     .boolean()
     .optional()
     .default(false)
-    .describe('Save generated image(s) to MCP workspace root directory'),
-  workspace_output_path: z.string().optional().describe(
-    'Safe relative output path below the MCP workspace root. Existing files and symlink components are rejected.',
-  ),
+    .describe('Create additional image copies below <workspace>/generated'),
+  workspace_output_path: z.string().optional().describe(WORKSPACE_OUTPUT_PATH_DESCRIPTION),
   disable_prompt_enhancement: z.boolean().optional().default(false).describe(
     'Disable client sampling prompt enhancement for deterministic benchmarks.',
   ),
@@ -246,7 +254,7 @@ export const ImageGenerateSchema = z.object({
     .optional()
     .default(ResponseFormat.MARKDOWN)
     .describe('Output format: markdown (default) or json'),
-}).superRefine(validateModelSizeCompat);
+}).superRefine(validateModelSizeCompat).superRefine(validateWorkspaceDestination);
 
 export const ImageEditSchema = z
   .object({
@@ -302,10 +310,12 @@ export const ImageEditSchema = z
         'Identity preservation fidelity for gpt-image-1.x models (not supported by gpt-image-2). ' +
           '"high" preserves face, body shape, pose, hair. "low" allows more creative variation.',
       ),
-    save_to_workspace: z.boolean().optional().default(false),
+    save_to_workspace: z.boolean().optional().default(false).describe('Create additional image copies below <workspace>/generated'),
+    workspace_output_path: z.string().optional().describe(WORKSPACE_OUTPUT_PATH_DESCRIPTION),
     response_format: z.nativeEnum(ResponseFormat).optional().default(ResponseFormat.MARKDOWN),
   })
   .superRefine(validateModelSizeCompat)
+  .superRefine(validateWorkspaceDestination)
   .refine(
     (d) =>
       !!(d.image) !== !!(d.images && d.images.length > 0) ||
