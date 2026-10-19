@@ -4,7 +4,7 @@ This guide targets an end-user computer; no repository clone or Bun installation
 
 ## 1. Prerequisites
 
-Install Goose and a current Node.js LTS release, then verify:
+Install Goose and Node.js 22 or newer (prefer a current LTS release), then verify:
 
 ```bash
 node --version
@@ -31,7 +31,7 @@ extensions:
     cmd: npx
     args:
       - "--yes"
-      - "@bioinfornatics/image-mcp@0.2.0"
+      - "@bioinfornatics/image-mcp@0.4.0"
       - --provider
       - openai
       - --transport
@@ -59,7 +59,7 @@ extensions:
     cmd: npx
     args:
       - "--yes"
-      - "@bioinfornatics/image-mcp@0.2.0"
+      - "@bioinfornatics/image-mcp@0.4.0"
       - --provider
       - azure
       - --base-url

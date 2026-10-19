@@ -255,6 +255,8 @@ When running in HTTP mode (`--transport http`), TLS is **mandatory** for any non
 | Recommended deployment | Reverse proxy (nginx, Caddy) terminates TLS; server listens on `127.0.0.1` only |
 | HSTS | Reverse proxy must set `Strict-Transport-Security: max-age=63072000; includeSubDomains` |
 
+Forwarded headers are not trusted by default (`trustProxy: false`): client-IP rate limiting uses the directly connected peer. Behind a reverse proxy, clients therefore share its IP bucket. Any deployment-specific trust policy must validate known proxy addresses/CIDRs; do not use unconditional trust or a hop count alone, which permits direct clients to forge forwarded addresses.
+
 **Caddy example (auto-TLS):**
 
 ```caddyfile
@@ -479,6 +481,12 @@ Every CI pipeline run (PR and main branch push) must include:
   run: bun audit --audit-level=high
   # Fails CI if any HIGH or CRITICAL vulnerabilities found
 ```
+
+The separate npm-consumer job runs node bin/verify-npm-consumer.mjs on Node 22 and 24. It builds and packs the actual archive, rejects development/secret paths, installs it with npm in a fresh temporary consumer project, and runs npm audit --omit=dev --audit-level=high. The consumer has no copied workspace configuration or overrides. Empty temporary npm configuration files and a minimal environment keep local registry credentials and provider secrets out of the check. Normal installation lifecycle scripts remain enabled to exercise real consumer installation.
+
+The installed executable is tested via npx, including the package version, MCP initialization, tool discovery, and read-only provider listing with a fake OpenAI key (no live image generation). Container and publication jobs require this consumer job in addition to the repository audit.
+
+**Why both audits are necessary:** npm ignores overrides declared by an installed dependency and does not inherit its repository lockfile. A green Bun audit therefore cannot prove that the published package installs a safe dependency tree. NestJS 12 and Config 12 fix the upstream runtime dependency constraints rather than depending on overrides in the consumer.
 
 For moderate vulnerabilities, open a tracking issue but do not fail CI. Review weekly.
 

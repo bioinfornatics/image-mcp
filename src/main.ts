@@ -134,7 +134,8 @@ async function bootstrap() {
 
   const adapter = new FastifyAdapter({
     bodyLimit: 50 * 1024 * 1024,
-    trustProxy: 1,
+    // Fail closed: arbitrary direct clients must not control forwarded addresses.
+    trustProxy: false,
     skipMiddie: true,
   });
   const app = await NestFactory.create<NestFastifyApplication>(AppModule, adapter, {

@@ -12,8 +12,10 @@ describe('documentation contracts', () => {
   const security = read('docs/SECURITY.md');
 
   it('matches the package Node.js engine', () => {
-    expect(readme).toContain('Node.js ≥ 20');
+    const minimum = JSON.parse(read('package.json')).engines.node.replace(/^>=/, '');
+    expect(readme).toContain('Node.js ≥ ' + minimum);
     expect(readme).not.toContain('Node.js ≥ 18');
+    expect(goose).toContain('Node.js ' + minimum + ' or newer');
   });
 
   it('uses boolean save_to_workspace and current elicitation action', () => {

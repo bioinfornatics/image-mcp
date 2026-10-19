@@ -371,10 +371,12 @@ await mcpServer.connect(transport);
 - **Status:** Accepted
 
 ### ADR-002: NestJS as Framework
-- **Decision:** NestJS ≥ 10
+- **Decision:** NestJS 12 (coordinated common/core/platform-fastify/testing versions)
 - **Rationale:** DI container enables module isolation for TDD; well-tested in production; excellent TS support; modular architecture maps cleanly to our layer design; `@nestjs/testing` makes integration tests straightforward
-- **Trade-offs:** More boilerplate than bare Express; ~1-2s startup overhead
+- **Trade-offs:** More boilerplate than bare Express; ~1-2s startup overhead; Node.js 22+ is required by the NestJS 12 file-type dependency
 - **Status:** Accepted
+
+Nest Config 12 uses the custom validate callback to retain the existing Joi rules, coercion, defaults, unknown environment variables, and aggregate errors. Runtime dependencies must also pass the packed npm consumer audit; repository-only overrides are not a consumer security guarantee.
 
 ### ADR-003: MCP SDK v2 packages
 - **Decision:** `@modelcontextprotocol/server`, `@modelcontextprotocol/node`, and `@modelcontextprotocol/fastify` v2

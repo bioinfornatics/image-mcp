@@ -5,7 +5,7 @@ FROM docker.io/oven/bun:1.3.12-alpine AS builder
 
 # Bump this value when a security release must invalidate the remote BuildKit
 # cache for the package-upgrade layer.
-ARG ALPINE_SECURITY_REFRESH=2026-08-26-openssl-3.5.8-r0
+ARG ALPINE_SECURITY_REFRESH=2026-10-19-security-refresh
 # Refresh build-stage Alpine libraries as dependencies copied into the runtime
 # can retain vulnerable shared-library packages from the base image.
 RUN echo "${ALPINE_SECURITY_REFRESH}" >/dev/null && apk upgrade --no-cache
@@ -27,7 +27,7 @@ RUN bun install --frozen-lockfile --production
 # ─────────────────────────────────────────────────────────────────────────────
 FROM docker.io/oven/bun:1.3.12-alpine AS runtime
 
-ARG ALPINE_SECURITY_REFRESH=2026-08-26-openssl-3.5.8-r0
+ARG ALPINE_SECURITY_REFRESH=2026-10-19-security-refresh
 # Refresh Alpine packages so the runtime contains current security fixes even
 # when the published Bun base-image digest lags behind the Alpine repository.
 RUN echo "${ALPINE_SECURITY_REFRESH}" >/dev/null && apk upgrade --no-cache

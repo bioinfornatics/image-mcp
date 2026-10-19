@@ -6,6 +6,27 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [Unreleased]
+
+## [0.4.0] — 2026-10-19
+
+### Security
+- Migrate the coordinated NestJS runtime/testing packages to 12.1.3, Config to 12.0.1, and Terminus to 12.1.0 so clean npm installs no longer pull vulnerable Fastify or Lodash versions.
+- Update Fastify, Joi, Hono, and the development-only qs dependency to patched releases.
+- Update TypeScript ESLint tooling to remove the unpatched braces dependency and preserve compatible brace-expansion versions.
+- Ignore untrusted forwarded addresses by default instead of using unconditional single-hop proxy trust.
+- Require both repository and packed npm consumer security checks before building/pushing containers or publishing packages.
+- Install the freshly built archive in a clean npm project, audit production dependencies, and verify the installed CLI/MCP handshake through npx on Node 22 and 24.
+
+### Changed
+- Require Node.js 22 or newer, matching the file-type dependency required by NestJS 12; enforce engine compatibility in clean consumer installs.
+
+### Fixed
+- Preserve existing Joi configuration validation through Nest Config 12's custom validation API.
+- Enforce exact, preflighted workspace destinations for generation and editing, including atomic exclusive publication and no silent fallback.
+- Check both Alpine OpenSSL libraries against a minimum patched version, accepting newer patch releases and package revisions.
+- Refresh cached Alpine security-upgrade layers for the current release preparation.
+
 ## [0.3.3] — 2026-08-26
 
 ### Added

@@ -9,9 +9,9 @@ import { ConfigService } from '@nestjs/config';
 import type { FastifyRequest } from 'fastify';
 import type { AppConfig } from '../config/app.config';
 
-// NOTE: In production behind a load balancer, ensure Fastify trustProxy is
-// configured in main.ts so request.ip reflects
-// the real client IP from X-Forwarded-For, not the proxy's IP.
+// Forwarded addresses are ignored by default (trustProxy: false). Deployments
+// behind a load balancer share its IP bucket unless trust is explicitly restricted
+// to known proxy addresses; never enable unconditional trust or hop-count trust.
 
 interface RateLimitEntry {
   count: number;

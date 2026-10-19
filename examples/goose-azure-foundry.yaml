@@ -8,7 +8,7 @@ extensions:
     cmd: npx
     args:
       - --yes
-      - "@bioinfornatics/image-mcp@0.2.0"
+      - "@bioinfornatics/image-mcp@0.4.0"
       - --base-url
       - https://YOUR-RESOURCE.services.ai.azure.com
       - --foundry-project-endpoint

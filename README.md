@@ -27,7 +27,7 @@
 
 ### Prerequisites
 
-- [Bun](https://bun.sh) ≥ 1.1 **or** Node.js ≥ 20 **or** Docker
+- [Bun](https://bun.sh) ≥ 1.1 **or** Node.js ≥ 22 **or** Docker
 - An OpenAI API key **or** Azure OpenAI resource
 
 ---
@@ -190,7 +190,7 @@ extensions:
     cmd: npx
     args:
       - "--yes"
-      - "@bioinfornatics/image-mcp@0.2.0"
+      - "@bioinfornatics/image-mcp@0.4.0"
       - --provider
       - openai
       - --transport
@@ -211,7 +211,7 @@ extensions:
     cmd: npx
     args:
       - "--yes"
-      - "@bioinfornatics/image-mcp@0.2.0"
+      - "@bioinfornatics/image-mcp@0.4.0"
       - --provider
       - azure
       - --base-url

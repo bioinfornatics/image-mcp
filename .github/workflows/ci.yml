@@ -177,11 +177,41 @@ jobs:
       - name: Audit dependencies
         run: bun audit --audit-level=high
 
+  # ─── Packed npm consumer (no inherited repository overrides) ──────────────
+  npm-consumer:
+    name: Packed npm Consumer · Audit · MCP
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    strategy:
+      matrix:
+        node: ['22', '24']
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: '1.3.12'
+
+      - name: Setup Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: Install build dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Pack, install, audit and initialize as an npm consumer
+        run: node bin/verify-npm-consumer.mjs
+
   # ─── Docker Build + Trivy Scan ─────────────────────────────────────────────
   docker:
     name: Docker Build · Trivy Scan
     runs-on: ubuntu-latest
-    needs: [quality, windows-paths]
+    needs: [quality, windows-paths, security, npm-consumer]
 
     permissions:
       contents: read
@@ -247,8 +277,7 @@ jobs:
 
       - name: Verify patched OpenSSL packages
         run: |
-          docker run --rm --entrypoint sh image-mcp:ci -lc \
-            "apk list --installed 2>/dev/null | grep -E '^(libcrypto3|libssl3)-3\\.5\\.8-r0'"
+          docker run --rm -i --entrypoint sh image-mcp:ci -s < bin/verify-openssl.sh
 
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
@@ -281,7 +310,7 @@ jobs:
   publish-gpr:
     name: Publish to GitHub Packages
     runs-on: ubuntu-latest
-    needs: [quality, docker]
+    needs: [quality, docker, security, npm-consumer]
     if: startsWith(github.ref, 'refs/tags/v')
 
     permissions:
@@ -354,7 +383,7 @@ jobs:
   publish-npm:
     name: Publish to npmjs.com
     runs-on: ubuntu-latest
-    needs: [quality, docker]
+    needs: [quality, docker, security, npm-consumer]
     if: startsWith(github.ref, 'refs/tags/v') && vars.NPMJS_PUBLISH_ENABLED == 'true'
 
     permissions:

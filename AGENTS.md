@@ -1,7 +1,7 @@
 # Agent Instructions — image-mcp
 
 AI coding agent reference for the **image-mcp** project.  
-Stack: **Bun ≥ 1.1 · NestJS 10 · TypeScript strict · MCP SDK v1.x**
+Stack: **Bun ≥ 1.1 · NestJS 12 · TypeScript strict · MCP SDK v2**
 
 ---
 
